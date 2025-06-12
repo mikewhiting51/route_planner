@@ -184,12 +184,14 @@
       {% endif %}
     </div>
     <header>
-        <button id="prev-pattern">&larr; Prev</button>
+      <button id="prev-pattern">&larr; Prev</button>
         <button id="next-pattern">Next &rarr;</button>
         <span id="current-pattern"></span>
         <button id="add-btn">Add Appointment</button>
         <button id="save-btn">Save Recurring Schedule</button>
         <button id="download-btn">Download Recurring CSV</button>
+        <button id="upload-btn">Upload CSV</button>
+        <input type="file" id="merge-file" accept=".csv" style="display:none">  
     </header>
     <div id="main-container">
         <div id="left-pane">
@@ -348,11 +350,22 @@
         const prevBtn = document.getElementById('prev-pattern');
         const nextBtn = document.getElementById('next-pattern');
         const addBtn = document.getElementById('add-btn');
+        const truckUtilEl = document.getElementById('truck-util');
+        const weightUtilEl = document.getElementById('weight-util');
+
+        const totalPotentialWeight = trucks.reduce((sum, t) => {
+            const cap = t.startsWith('Trailer') ? 25000 : (t.startsWith('Straight') ? 15000 : 0);
+            return sum + cap * slots.length;
+        }, 0);
+
         const saveBtn = document.getElementById('save-btn');
         const downloadBtn = document.getElementById('download-btn');
+        const uploadBtn = document.getElementById('upload-btn');
+        const mergeFileInput = document.getElementById('merge-file');
 
         if (!currentPatternEl || !unassignedListEl || !rightPaneEl
-            || !prevBtn || !nextBtn || !addBtn || !saveBtn || !downloadBtn) {
+            || !prevBtn || !nextBtn || !addBtn || !saveBtn || !downloadBtn
+            || !uploadBtn || !mergeFileInput) {
             console.error("Missing DOM elements.");
             alert("Recurring schedule page did not load correctly.");
             return;
@@ -486,6 +499,7 @@
                             const ids = Array.from(el.children).map(ch => ch.dataset.id);
                             assignments[patternLabel][slotKey] = ids;
                             updateCapacityDisplay(el, totalWeight, capacity);
+                            updatePatternStats(patternLabel);
                         }
                     });
                 });
@@ -524,6 +538,7 @@
                             }
                         });
                     });
+                    updatePatternStats(patternLabel);
                 }
             });
             console.log("Initialized Sortable on recurring unassigned.");
@@ -540,6 +555,33 @@
                     capInfo.style.color = '';
                 }
             }
+        }
+
+        function computePatternStats(label) {
+            let truckSet = new Set();
+            let weight = 0;
+            trucks.forEach(truck => {
+                slots.forEach(slotDef => {
+                    const arr = assignments[label][`${truck}_${slotDef.label}`] || [];
+                    if (arr.length > 0) truckSet.add(truck);
+                    arr.forEach(id => {
+                        const ap = apptMap[id];
+                        if (ap && ap.max_weight != null) {
+                            const w = Number(ap.max_weight);
+                            if (!isNaN(w)) weight += w;
+                        }
+                    });
+                });
+            });
+            return { trucksUsed: truckSet.size, weight };
+        }
+
+        function updatePatternStats(label) {
+            if (!truckUtilEl || !weightUtilEl) return;
+            const stats = computePatternStats(label);
+            truckUtilEl.textContent = `Truck Utilization: ${stats.trucksUsed}/${trucks.length}`;
+            const pct = totalPotentialWeight ? Math.round((stats.weight / totalPotentialWeight) * 100) : 0;
+            weightUtilEl.textContent = `Weight Utilization: ${stats.weight} / ${totalPotentialWeight} (${pct}%)`;
         }
 
         function populateForPattern(patternObj) {
@@ -609,6 +651,7 @@
                 }
             });
             console.log("Unassigned for pattern populated.");
+            updatePatternStats(patternLabel);
         }
 
         // Navigation
@@ -667,6 +710,33 @@
         // Download button
         downloadBtn.addEventListener('click', () => {
             window.location.href = "{{ url_for('download_recurring_schedule') }}";
+        });
+
+        // Upload CSV button
+        uploadBtn.addEventListener('click', () => {
+            mergeFileInput.click();
+        });
+        mergeFileInput.addEventListener('change', () => {
+            const file = mergeFileInput.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            fetch('/upload_recurring_merge', {
+                method: 'POST',
+                body: formData
+            }).then(resp => {
+                if (resp.ok) {
+                    window.location.reload();
+                } else {
+                    resp.text().then(t => {
+                        alert('Upload failed: ' + t);
+                    }).catch(() => {
+                        alert('Upload failed');
+                    });
+                }
+            }).catch(err => {
+                alert('Upload failed: ' + err);
+            });
         });
 
         // Add Appointment modal logic with dynamic pattern insertion

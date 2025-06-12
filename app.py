@@ -253,15 +253,23 @@ def add_specific_appointment():
     """
     user_id = current_user.id
 
-    # Read form fields
-    agency_number = request.form.get('agency_number', '').strip()
-    account_name  = request.form.get('account_name', '').strip()
-    area          = request.form.get('area', '').strip()
-    min_w_raw     = request.form.get('min_weight', '').strip()
-    max_w_raw     = request.form.get('max_weight', '').strip()
-    start_dt_raw  = request.form.get('start_datetime', '').strip()
-    end_dt_raw    = request.form.get('end_datetime', '').strip()
-
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        agency_number = str(data.get('agency_number', '')).strip()
+        account_name  = str(data.get('account_name', '')).strip()
+        area          = str(data.get('area', '')).strip()
+        min_w_raw     = str(data.get('min_weight', '')).strip()
+        max_w_raw     = str(data.get('max_weight', '')).strip()
+        start_dt_raw  = str(data.get('start_time', '')).strip()
+        end_dt_raw    = str(data.get('end_time', '')).strip()
+    else:
+        agency_number = request.form.get('agency_number', '').strip()
+        account_name  = request.form.get('account_name', '').strip()
+        area          = request.form.get('area', '').strip()
+        min_w_raw     = request.form.get('min_weight', '').strip()
+        max_w_raw     = request.form.get('max_weight', '').strip()
+        start_dt_raw  = request.form.get('start_datetime', '').strip()
+        end_dt_raw    = request.form.get('end_datetime', '').strip()
     # Basic validation
     errors = []
     if not agency_number:
@@ -299,10 +307,13 @@ def add_specific_appointment():
             errors.append("End Time must be after Start Time.")
 
     if errors:
+        if request.is_json:
+            return jsonify({'error': '; '.join(errors)}), 400
         for e in errors:
             flash(e, "error")
         # Redirect back to schedule; user will see flashes
         return redirect(url_for('schedule'))
+
 
     # Build new appointment dict matching your existing structure
     start_iso = start_dt.isoformat()
@@ -335,14 +346,18 @@ def add_specific_appointment():
     # Save back to DB
     try:
         save_specific_definitions_to_db(user_id, json.dumps(appts))
-    except Exception as e:
+    except Exception:
         app.logger.exception("Failed to save new specific appointment")
+        if request.is_json:
+            return jsonify({'error': 'Failed to persist new appointment'}), 500
         flash("Failed to persist new appointment.", "error")
         # but continue to update in-memory so session sees it
     # Also update in-memory store if present
     if user_id in data_store and isinstance(data_store[user_id], dict):
         # update the list
         data_store[user_id].setdefault('appointments', []).append(new_appt)
+    if request.is_json:
+        return jsonify({'success': True, 'new_appt': new_appt})
     flash("Added new appointment.", "info")
     # Redirect back to scheduler
     return redirect(url_for('schedule'))
@@ -361,16 +376,27 @@ def add_recurring_appointment():
     """
     user_id = current_user.id
 
-    # Read form
-    agency_number = request.form.get('agency_number', '').strip()
-    account_name  = request.form.get('account_name', '').strip()
-    area          = request.form.get('area', '').strip()
-    min_w_raw     = request.form.get('min_weight', '').strip()
-    max_w_raw     = request.form.get('max_weight', '').strip()
-    day           = request.form.get('day', '').strip()
-    frequency     = request.form.get('frequency', '').strip()
-    start_time_raw= request.form.get('start_time', '').strip()  # format "HH:MM"
-    end_time_raw  = request.form.get('end_time', '').strip()
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        agency_number = str(data.get('agency_number', '')).strip()
+        account_name  = str(data.get('account_name', '')).strip()
+        area          = str(data.get('area', '')).strip()
+        min_w_raw     = str(data.get('min_weight', '')).strip()
+        max_w_raw     = str(data.get('max_weight', '')).strip()
+        day           = str(data.get('day', '')).strip()
+        frequency     = str(data.get('frequency', '')).strip()
+        start_time_raw= str(data.get('start_time_str', '')).strip()
+        end_time_raw  = str(data.get('end_time_str', '')).strip()
+    else:
+        agency_number = request.form.get('agency_number', '').strip()
+        account_name  = request.form.get('account_name', '').strip()
+        area          = request.form.get('area', '').strip()
+        min_w_raw     = request.form.get('min_weight', '').strip()
+        max_w_raw     = request.form.get('max_weight', '').strip()
+        day           = request.form.get('day', '').strip()
+        frequency     = request.form.get('frequency', '').strip()
+        start_time_raw= request.form.get('start_time', '').strip()  # format "HH:MM"
+        end_time_raw  = request.form.get('end_time', '').strip()
 
     # Validate
     weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -416,6 +442,8 @@ def add_recurring_appointment():
             errors.append("End Time must be after Start Time.")
 
     if errors:
+        if request.is_json:
+            return jsonify({'error': '; '.join(errors)}), 400
         for e in errors:
             flash(e, "error")
         return redirect(url_for('recurring_schedule'))
@@ -451,6 +479,8 @@ def add_recurring_appointment():
         save_recurring_definitions_to_db(user_id, json.dumps(appts))
     except Exception:
         app.logger.exception("Failed to save new recurring appointment")
+        if request.is_json:
+            return jsonify({'error': 'Failed to persist new appointment'}), 500
         flash("Failed to persist new recurring appointment.", "error")
     # Update in-memory
     # Recompute patterns too
@@ -471,6 +501,8 @@ def add_recurring_appointment():
             'appointments': appts,
             'patterns': patterns
         }
+    if request.is_json:
+        return jsonify({'success': True, 'new_appt': new_appt})
     flash("Added new recurring appointment.", "info")
     return redirect(url_for('recurring_schedule'))
 # ----------------------
@@ -963,8 +995,85 @@ def use_existing_specific():
         'appointments': appointments,
         'config': {}
     }
-    flash("Loaded existing uploaded definitions. Please choose date range.", "info")
-    return redirect(url_for('configure'))
+    flash("Loaded existing recurring definitions. You can continue assigning.", "info")
+    return redirect(url_for('recurring_schedule'))
+
+    if not new_defs:
+        flash("No valid recurring definitions found in CSV.", "error")
+        return redirect(url_for('recurring_upload'))
+
+    existing_json = load_recurring_definitions_from_db(user_id)
+    if existing_json:
+        try:
+            existing_defs = json.loads(existing_json)
+        except Exception:
+            existing_defs = []
+    else:
+        existing_defs = []
+
+    replaced_ids = set()
+    for new_rec in new_defs:
+        match_idx = -1
+        for i, rec in enumerate(existing_defs):
+            if (rec.get('agency_number') == new_rec['agency_number'] and
+                rec.get('account_name') == new_rec['account_name'] and
+                rec.get('day') == new_rec['day'] and
+                rec.get('frequency') == new_rec['frequency']):
+                match_idx = i
+                break
+        if match_idx == -1:
+            existing_defs.append(new_rec)
+            continue
+        old = existing_defs[match_idx]
+        equal_all = all(old.get(k) == new_rec.get(k) for k in new_rec if k != 'id')
+        if equal_all:
+            continue
+        replaced_ids.add(old.get('id'))
+        existing_defs[match_idx] = new_rec
+
+    if replaced_ids:
+        sched_json = load_recurring_schedule_from_db(user_id)
+        if sched_json:
+            try:
+                assignments = json.loads(sched_json)
+            except Exception:
+                assignments = {}
+            modified = False
+            for pat, slots in assignments.items():
+                if not isinstance(slots, dict):
+                    continue
+                for slot_key, id_list in slots.items():
+                    if not isinstance(id_list, list):
+                        continue
+                    new_list = [i for i in id_list if i not in replaced_ids]
+                    if len(new_list) != len(id_list):
+                        assignments[pat][slot_key] = new_list
+                        modified = True
+            if modified:
+                save_recurring_schedule_to_db(user_id, json.dumps(assignments))
+
+    save_recurring_definitions_to_db(user_id, json.dumps(existing_defs))
+
+    weekdays_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    ordinals_order = ['First', 'Second', 'Third', 'Fourth', 'Fifth']
+    patterns = []
+    seen = set()
+    for appt in existing_defs:
+        label = f"{appt['frequency']} {appt['day']}"
+        if label not in seen:
+            seen.add(label)
+            patterns.append({'label': label, 'frequency': appt['frequency'], 'day': appt['day']})
+    patterns.sort(key=lambda p: (ordinals_order.index(p['frequency']), weekdays_order.index(p['day'])))
+
+    data_store[user_id] = {
+        'recurring': {
+            'appointments': existing_defs,
+            'patterns': patterns
+        }
+    }
+
+    flash("Recurring definitions merged successfully.", "info")
+    return redirect(url_for('recurring_schedule'))
 
 @app.route('/configure', methods=['GET', 'POST'])
 @login_required
@@ -1342,6 +1451,155 @@ def use_existing_recurring():
         }
     }
     flash("Loaded existing recurring definitions. You can continue assigning.", "info")
+    return redirect(url_for('recurring_schedule'))
+
+@app.route('/upload_recurring_merge', methods=['POST'])
+@login_required
+def upload_recurring_merge():
+    """Merge uploaded recurring CSV with existing definitions, preserving
+    assignments for unchanged appointments. Replaced appointments receive new
+    IDs and are removed from any saved assignments."""
+    user_id = current_user.id
+    if 'file' not in request.files:
+        flash("No file part", "error")
+        return redirect(url_for('recurring_upload'))
+    file = request.files['file']
+    if file.filename == '':
+        flash("No selected file", "error")
+        return redirect(url_for('recurring_upload'))
+    try:
+        df = pd.read_csv(file)
+    except Exception as e:
+        flash(f"Failed to read CSV: {e}", "error")
+        return redirect(url_for('recurring_upload'))
+
+    required = [
+        'Agency Number', 'Account Name', 'Area',
+        'Minimum Weight', 'Maximum Weight',
+        'Day', 'Frequency', 'Start Time', 'End Time'
+    ]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        flash(f"Missing required columns: {missing}", "error")
+        return redirect(url_for('recurring_upload'))
+
+    weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    ordinals = ['First','Second','Third','Fourth','Fifth']
+    new_rows = []
+    for idx, row in df.iterrows():
+        try:
+            day = str(row['Day']).strip()
+            freq = str(row['Frequency']).strip()
+            if day not in weekdays or freq not in ordinals:
+                raise ValueError
+            st_dt = pd.to_datetime(row['Start Time'])
+            et_dt = pd.to_datetime(row['End Time'])
+            start_hour = st_dt.hour + st_dt.minute/60.0
+            end_hour = et_dt.hour + et_dt.minute/60.0
+            if not (end_hour > start_hour):
+                raise ValueError
+            new_rows.append({
+                'agency_number': str(row['Agency Number']),
+                'account_name': str(row['Account Name']),
+                'area': str(row['Area']),
+                'min_weight': row['Minimum Weight'],
+                'max_weight': row['Maximum Weight'],
+                'day': day,
+                'frequency': freq,
+                'start_hour': start_hour,
+                'end_hour': end_hour,
+                'start_time_str': st_dt.strftime('%H:%M'),
+                'end_time_str': et_dt.strftime('%H:%M')
+            })
+        except Exception:
+            flash(f"Row {idx+2} invalid", "error")
+            return redirect(url_for('recurring_upload'))
+
+    # Load existing definitions
+    existing_json = load_recurring_definitions_from_db(user_id)
+    existing = json.loads(existing_json) if existing_json else []
+    def _key(a):
+        return (
+            a['agency_number'], a['account_name'], a['area'],
+            a['day'], a['frequency'], a['start_time_str'], a['end_time_str']
+        )
+    existing_map = {_key(a): a for a in existing}
+
+    processed_keys = set()
+    replaced_ids = []
+    merged = []
+
+    for row in new_rows:
+        k = _key(row)
+        ex = existing_map.get(k)
+        if ex:
+            processed_keys.add(k)
+            identical = (
+                ex.get('min_weight') == row['min_weight'] and
+                ex.get('max_weight') == row['max_weight']
+            )
+            if identical:
+                row['id'] = ex['id']
+            else:
+                replaced_ids.append(ex['id'])
+                row['id'] = str(uuid.uuid4())
+            merged.append(row)
+        else:
+            row['id'] = str(uuid.uuid4())
+            merged.append(row)
+
+    for ex in existing:
+        if _key(ex) not in processed_keys:
+            merged.append(ex)
+
+    if not merged:
+        flash("No valid recurring definitions found in CSV.", "error")
+        return redirect(url_for('recurring_upload'))
+
+    try:
+        save_recurring_definitions_to_db(user_id, json.dumps(merged))
+    except Exception:
+        flash("Failed to save merged definitions", "error")
+        return redirect(url_for('recurring_upload'))
+
+    # Recompute patterns
+    weekdays_order = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    ordinals_order = ['First','Second','Third','Fourth','Fifth']
+    patterns = []
+    seen = set()
+    for appt in merged:
+        label = f"{appt['frequency']} {appt['day']}"
+        if label not in seen:
+            seen.add(label)
+            patterns.append({'label': label, 'frequency': appt['frequency'], 'day': appt['day']})
+    patterns.sort(key=lambda pat: (ordinals_order.index(pat['frequency']), weekdays_order.index(pat['day'])))
+
+    data_store[user_id] = {
+        'recurring': {
+            'appointments': merged,
+            'patterns': patterns
+        }
+    }
+
+    # Remove replaced IDs from saved assignments
+    if replaced_ids:
+        saved = load_recurring_schedule_from_db(user_id)
+        if saved:
+            try:
+                assignments = json.loads(saved)
+                changed = False
+                for pat, slots in assignments.items():
+                    for slot, id_list in slots.items():
+                        new_list = [i for i in id_list if i not in replaced_ids]
+                        if len(new_list) != len(id_list):
+                            assignments[pat][slot] = new_list
+                            changed = True
+                if changed:
+                    save_recurring_schedule_to_db(user_id, json.dumps(assignments))
+            except Exception:
+                pass
+
+    flash("Recurring upload merged; new appointments added to Unassigned.", "info")
     return redirect(url_for('recurring_schedule'))
 
 @app.route('/recurring_schedule', methods=['GET'])
