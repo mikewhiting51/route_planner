@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Home - Scheduler</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        .option-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 300px;
+        }
+        .option-container a, .option-container button {
+            display: inline-block;
+            text-decoration: none;
+            background-color: #007BFF;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .option-container a:hover, .option-container button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+  <div style="margin-bottom: 10px;">
+  {% if current_user.is_authenticated %}
+    Logged in as {{ current_user.username }} |
+    <a href="{{ url_for('logout') }}">Logout</a> |
+    <a href="{{ url_for('index') }}">Home</a>
+  {% else %}
+    <a href="{{ url_for('login') }}">Login</a> |
+    <a href="{{ url_for('register') }}">Register</a>
+  {% endif %}
+</div>
+    <h1>Scheduler Home</h1>
+    <p>Please choose an option:</p>
+    <div class="option-container">
+        <a href="{{ url_for('upload_specific') }}">Upload Specific-Date Appointments</a>
+        <a href="{{ url_for('recurring_upload') }}">Upload Recurring Appointments</a>
+    </div>
+</body>
+</html>
+
+

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Configure Schedule</title>
+</head>
+<body>
+    <div style="margin-bottom: 10px;">
+  {% if current_user.is_authenticated %}
+    Logged in as {{ current_user.username }} |
+    <a href="{{ url_for('logout') }}">Logout</a> |
+    <a href="{{ url_for('index') }}">Home</a>
+  {% else %}
+    <a href="{{ url_for('login') }}">Login</a> |
+    <a href="{{ url_for('register') }}">Register</a>
+  {% endif %}
+</div>
+    <h1>Configure Date Range</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul style="color:red;">
+          {% for category, msg in messages %}
+            <li>{{ msg }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    <form method="post">
+        <label>Start Date:</label>
+        <input type="date" name="date_start" required>
+        <br><br>
+        <label>End Date:</label>
+        <input type="date" name="date_end" required>
+        <br><br>
+        <button type="submit">Next</button>
+    </form>
+</body>
+</html>

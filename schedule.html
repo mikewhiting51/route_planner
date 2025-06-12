@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Schedule Routes</title>
+    <style>
+        /* Global box-sizing */
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            padding: 10px;
+            background-color: #f0f0f0;
+            display: flex;
+            align-items: center;
+        }
+        header button {
+            margin-right: 10px;
+            padding: 5px 10px;
+        }
+        header #current-date {
+            font-weight: bold;
+            margin-right: 20px;
+        }
+        #main-container {
+            display: flex;
+            height: calc(100vh - 50px);
+        }
+        #left-pane {
+            width: 250px;
+            border-right: 1px solid #ccc;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        #left-pane h3 {
+            margin-top: 0;
+        }
+        /* Appointment card */
+        .appointment {
+            position: relative; /* for icon positioning */
+            border: 1px solid #666;
+            background-color: #f9f9f9;
+            margin: 4px 0;
+            padding: 4px;
+            cursor: move;
+            font-size: 0.85em;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+        .appointment .icon-container {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            display: none;
+        }
+        .appointment:hover .icon-container {
+            display: block;
+        }
+        .icon {
+            margin-left: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        #right-pane {
+            flex-grow: 1;
+            overflow-x: auto;
+            padding: 10px;
+            white-space: nowrap;
+        }
+        .truck-block {
+            display: inline-block;
+            vertical-align: top;
+            border: 1px solid #999;
+            margin: 5px;
+            width: 220px; /* adjust if needed */
+        }
+        .truck-block h4 {
+            text-align: center;
+            margin: 5px 0;
+            white-space: pre-line;
+            background-color: #e0e0e0;
+            padding: 4px;
+            font-size: 0.9em;
+        }
+        .slot-container {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 8px;
+        }
+        .capacity-info {
+            flex: 0 0 auto;
+            background-color: #e0e0e0;
+            padding: 4px;
+            font-size: 0.8em;
+            border-bottom: 1px solid #ccc;
+        }
+        .slot-list {
+            flex: 1 1 auto;
+            min-height: 60px;
+            max-height: 250px; /* adjust or remove */
+            overflow-y: auto;
+            padding: 5px;
+            border-left: 2px dashed #ddd; /* optional hint */
+        }
+        .slot-list .appointment {
+            margin: 2px 0;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+        #save-btn, #download-btn, #add-btn {
+            margin-left: auto;
+            padding: 6px 12px;
+        }
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: #fff;
+            padding: 20px;
+            border-radius: 4px;
+            max-width: 90%;
+            width: 360px;
+        }
+        .modal label {
+            display: block;
+            margin: 8px 0 4px;
+            font-size: 0.9em;
+        }
+        .modal input {
+            width: 100%;
+            padding: 4px;
+            margin-bottom: 8px;
+        }
+        .modal h3 {
+            margin-top: 0;
+        }
+        .modal-buttons {
+            text-align: right;
+        }
+        .modal-buttons button {
+            margin-left: 8px;
+            padding: 6px 10px;
+        }
+    </style>
+    <!-- Include SortableJS -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.14.0/Sortable.min.js"></script>
+</head>
+<body>
+    <header>
+        <button id="prev-day">&larr; Prev Day</button>
+        <button id="next-day">Next Day &rarr;</button>
+        <span id="current-date"></span>
+        <button id="add-btn">Add Appointment</button>
+        <button id="save-btn">Save Schedule</button>
+        <button id="download-btn">Download CSV</button>
+    </header>
+    <div id="main-container">
+        <div id="left-pane">
+            <h3>Unassigned</h3>
+            <div id="unassigned-list"></div>
+        </div>
+        <div id="right-pane">
+            <!-- Truck blocks inserted by JS -->
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Edit Appointment</h3>
+        <!-- onsubmit return false to prevent any accidental reload -->
+        <form id="editForm" onsubmit="return false;">
+          <input type="hidden" id="edit-id">
+          <label>Agency Number:
+            <input type="text" id="edit-agency_number" required>
+          </label>
+          <label>Account Name:
+            <input type="text" id="edit-account_name" required>
+          </label>
+          <label>Area:
+            <input type="text" id="edit-area" required>
+          </label>
+          <label>Minimum Weight:
+            <input type="number" id="edit-min_weight" required>
+          </label>
+          <label>Maximum Weight:
+            <input type="number" id="edit-max_weight" required>
+          </label>
+          <label>Start Time:
+            <input type="datetime-local" id="edit-start_time" required>
+          </label>
+          <label>End Time:
+            <input type="datetime-local" id="edit-end_time" required>
+          </label>
+          <div class="modal-buttons">
+            <button type="button" id="editCancelBtn">Cancel</button>
+            <!-- Make this button type="button" so clicking it won’t trigger a native submit -->
+            <button type="button" id="editSaveBtn">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div id="addModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Add New Appointment</h3>
+        <form id="addForm" onsubmit="return false;">
+          <label>Agency Number:
+            <input type="text" id="add-agency_number" required>
+          </label>
+          <label>Account Name:
+            <input type="text" id="add-account_name" required>
+          </label>
+          <label>Area:
+            <input type="text" id="add-area" required>
+          </label>
+          <label>Minimum Weight:
+            <input type="number" id="add-min_weight" required>
+          </label>
+          <label>Maximum Weight:
+            <input type="number" id="add-max_weight" required>
+          </label>
+          <label>Start Time:
+            <input type="datetime-local" id="add-start_time" required>
+          </label>
+          <label>End Time:
+            <input type="datetime-local" id="add-end_time" required>
+          </label>
+          <div class="modal-buttons">
+            <button type="button" id="addCancelBtn">Cancel</button>
+            <!-- Use type="button" to avoid default submission -->
+            <button type="button" id="addSubmitBtn">Add</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+    // @ts-nocheck
+    document.addEventListener('DOMContentLoaded', () => {
+        let appointments, dates, trucks, slots, savedAssignments;
+        try {
+            appointments = {{ appointments | tojson | safe }};
+            dates = {{ dates | tojson | safe }};
+            trucks = {{ trucks | tojson | safe }};
+            slots = {{ slots | tojson | safe }};
+            savedAssignments = {{ saved_assignments | tojson | safe }};
+        } catch (e) {
+            console.error("Failed to parse embedded JSON data:", e);
+            alert("Error reading schedule data. Check console.");
+            return;
+        }
+        // Validate arrays
+        if (!Array.isArray(appointments) || !Array.isArray(dates)
+            || !Array.isArray(trucks) || !Array.isArray(slots)) {
+            console.error("One of the expected arrays is invalid.");
+            alert("Schedule data malformed.");
+            return;
+        }
+
+        // Map id -> appointment
+        const apptMap = {};
+        appointments.forEach(a => { apptMap[a.id] = a; });
+
+        // Initialize assignments: date -> { "TruckName_SlotLabel": [] }
+        const assignments = {};
+        dates.forEach(d => {
+            assignments[d] = {};
+            trucks.forEach(truck => {
+                slots.forEach(slotDef => {
+                    const key = `${truck}_${slotDef.label}`;
+                    assignments[d][key] = [];
+                });
+            });
+        });
+        // Apply savedAssignments if present
+        if (savedAssignments && typeof savedAssignments === 'object') {
+            Object.keys(savedAssignments).forEach(dateKey => {
+                if (assignments[dateKey]) {
+                    assignments[dateKey] = savedAssignments[dateKey];
+                }
+            });
+        }
+        console.log("Initialized assignments:", assignments);
+
+        let currentIndex = 0;
+
+        const currentDateEl = document.getElementById('current-date');
+        const unassignedListEl = document.getElementById('unassigned-list');
+        const rightPaneEl = document.getElementById('right-pane');
+        const prevBtn = document.getElementById('prev-day');
+        const nextBtn = document.getElementById('next-day');
+        const addBtn = document.getElementById('add-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const downloadBtn = document.getElementById('download-btn');
+
+        if (!currentDateEl || !unassignedListEl || !rightPaneEl
+            || !prevBtn || !nextBtn || !addBtn || !saveBtn || !downloadBtn) {
+            alert("Schedule page did not load correctly; missing elements.");
+            return;
+        }
+
+        function formatDateDisplay(dateStr) {
+            const dt = new Date(dateStr);
+            if (isNaN(dt)) return dateStr;
+            const options = { weekday: 'short', year: 'numeric', month: 'short', day: '2-digit' };
+            return dt.toLocaleDateString(undefined, options);
+        }
+        function formatHourDecimal(dec) {
+            const h = Math.floor(dec);
+            const m = Math.round((dec - h)*60);
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+        }
+
+        // Create appointment card including edit/delete icons
+        function createApptCard(appt) {
+            const div = document.createElement('div');
+            div.className = 'appointment';
+            div.dataset.id = appt.id;
+            // Format times
+            let st, et;
+            try {
+                st = new Date(appt.start_time);
+                et = new Date(appt.end_time);
+            } catch {
+                st = null; et = null;
+            }
+            const stStr = st && !isNaN(st) ? st.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : "";
+            const etStr = et && !isNaN(et) ? et.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : "";
+            div.innerHTML = `
+                <strong>${appt.agency_number}</strong> ${appt.account_name}<br>
+                <em>${appt.area}</em><br>
+                ${stStr} - ${etStr}<br>
+                Max: ${appt.max_weight}
+                <div class="icon-container">
+                    <span class="icon edit-icon" title="Edit">&#9998;</span>
+                    <span class="icon delete-icon" title="Delete">&#10060;</span>
+                </div>
+            `;
+            // Edit listener
+            div.querySelector('.edit-icon').addEventListener('click', e => {
+                e.stopPropagation();
+                openEditModal(appt);
+            });
+            // Delete listener
+            div.querySelector('.delete-icon').addEventListener('click', e => {
+                e.stopPropagation();
+                deleteAppointment(appt);
+            });
+            return div;
+        }
+
+        const sortableInstances = {};
+
+        function buildTruckBlocks() {
+            rightPaneEl.innerHTML = '';
+            trucks.forEach(truck => {
+                const block = document.createElement('div');
+                block.className = 'truck-block';
+                // Header
+                const header = document.createElement('h4');
+                const slotTexts = slots.map(s => `${s.label}: ${formatHourDecimal(s.start_hour)}-${formatHourDecimal(s.end_hour)}`);
+                header.textContent = `${truck}\n${slotTexts.join('\n')}`;
+                block.appendChild(header);
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const container = document.createElement('div');
+                    container.className = 'slot-container';
+                    // capacity header
+                    const capInfo = document.createElement('div');
+                    capInfo.className = 'capacity-info';
+                    const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                    capInfo.textContent = `Load: 0 / ${cap === Infinity ? '∞' : cap}`;
+                    container.appendChild(capInfo);
+                    // drop area
+                    const slotDiv = document.createElement('div');
+                    slotDiv.className = 'slot-list';
+                    slotDiv.id = `slot_${safeTruck}_${slotDef.label}`;
+                    slotDiv.dataset.truck = truck;
+                    slotDiv.dataset.slot = slotDef.label;
+                    container.appendChild(slotDiv);
+                    block.appendChild(container);
+                });
+                rightPaneEl.appendChild(block);
+            });
+            console.log("Built truck blocks.");
+
+            // Initialize Sortable on each slot-list
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    const el = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (!el) return;
+                    sortableInstances[slotKey] = new Sortable(el, {
+                        group: 'shared',
+                        animation: 150,
+                        onAdd(evt) {
+                            const apptId = evt.item.dataset.id;
+                            const appt = apptMap[apptId];
+                            if (!appt) {
+                                alert('Unknown appointment');
+                                evt.from.appendChild(evt.item);
+                                return;
+                            }
+                            // Time-fit check
+                            const sh = appt.start_hour;
+                            const tstart = slotDef.start_hour, tend = slotDef.end_hour;
+                            if (!(sh >= tstart && sh < tend)) {
+                                // warning but allow override
+                                if (!confirm(`This appointment does not fit time slot ${slotDef.label} (${formatHourDecimal(tstart)}-${formatHourDecimal(tend)}). Place anyway?`)) {
+                                    evt.from.appendChild(evt.item);
+                                    return;
+                                }
+                            }
+                            // Capacity check
+                            let capacity = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                            // Compute totalWeight including this new one
+                            let totalWeight = 0;
+                            Array.from(el.children).forEach(child => {
+                                const id = child.dataset.id;
+                                const a = apptMap[id];
+                                if (a && a.max_weight != null) {
+                                    const w = Number(a.max_weight);
+                                    if (!isNaN(w)) totalWeight += w;
+                                }
+                            });
+                            if (totalWeight > capacity) {
+                                if (!confirm(`Total load ${totalWeight} exceeds capacity ${capacity}. Place anyway?`)) {
+                                    evt.from.appendChild(evt.item);
+                                    updateCapacityDisplay(el, totalWeight - Number(appt.max_weight||0), capacity);
+                                    return;
+                                }
+                            }
+                            // Passed or overridden: update assignments and header
+                            const dateStr = dates[currentIndex];
+                            const ids = Array.from(el.children).map(ch => ch.dataset.id);
+                            assignments[dateStr][slotKey] = ids;
+                            updateCapacityDisplay(el, totalWeight, capacity);
+                        }
+                    });
+                });
+            });
+            // Initialize Sortable on unassigned
+            new Sortable(unassignedListEl, {
+                group: 'shared',
+                animation: 150,
+                onAdd(evt) {
+                    const apptId = evt.item.dataset.id;
+                    const dateStr = dates[currentIndex];
+                    // Remove from any slot arrays
+                    trucks.forEach(truck => {
+                        slots.forEach(slotDef => {
+                            const slotKey = `${truck}_${slotDef.label}`;
+                            const arr = assignments[dateStr][slotKey];
+                            const idx = arr.indexOf(apptId);
+                            if (idx !== -1) {
+                                arr.splice(idx, 1);
+                                // Update capacity display
+                                const safeTruck = truck.replace(/\s+/g, '_');
+                                const el = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                                if (el) {
+                                    let totalWeight = 0;
+                                    Array.from(el.children).forEach(child => {
+                                        if (child.classList.contains('capacity-info')) return;
+                                        const id = child.dataset.id;
+                                        const a = apptMap[id];
+                                        if (a && a.max_weight != null) {
+                                            const w = Number(a.max_weight);
+                                            if (!isNaN(w)) totalWeight += w;
+                                        }
+                                    });
+                                    let capacity = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                                    updateCapacityDisplay(el, totalWeight, capacity);
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+            console.log("Initialized Sortable.");
+        }
+
+        function updateCapacityDisplay(slotEl, totalWeight, capacity) {
+            // slotEl is the .slot-list element; capacity-info is previous sibling
+            const capInfo = slotEl.previousElementSibling;
+            if (capInfo && capInfo.classList.contains('capacity-info')) {
+                capInfo.textContent = `Load: ${totalWeight} / ${capacity === Infinity ? '∞' : capacity}`;
+                // color red if over
+                if (capacity !== Infinity && totalWeight > capacity) {
+                    capInfo.style.color = 'red';
+                } else {
+                    capInfo.style.color = '';
+                }
+            }
+        }
+
+        function populateForDate(dateStr) {
+            console.log("Populating for date:", dateStr);
+            currentDateEl.textContent = formatDateDisplay(dateStr);
+            unassignedListEl.innerHTML = '';
+            // Clear each slot
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotDiv = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (slotDiv) {
+                        slotDiv.innerHTML = '';
+                        // reset capacity header
+                        const capInfo = slotDiv.previousElementSibling;
+                        if (capInfo && capInfo.classList.contains('capacity-info')) {
+                            const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                            capInfo.textContent = `Load: 0 / ${cap === Infinity ? '∞' : cap}`;
+                            capInfo.style.color = '';
+                        }
+                    }
+                });
+            });
+            // Filter appointments by date
+            const appsForDate = appointments.filter(appt => {
+                const st = String(appt.start_time);
+                const parts = st.split('T');
+                if (parts.length < 1) return false;
+                return parts[0] === dateStr;
+            });
+            console.log("Appointments for date:", appsForDate);
+            // Place assigned into slots
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    const slotDiv = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (!slotDiv) return;
+                    const arr = assignments[dateStr][slotKey] || [];
+                    let totalWeight = 0;
+                    arr.forEach(apptId => {
+                        const appt = apptMap[apptId];
+                        if (appt) {
+                            const card = createApptCard(appt);
+                            card.dataset.id = apptId;
+                            slotDiv.appendChild(card);
+                            if (appt.max_weight != null) {
+                                const w = Number(appt.max_weight);
+                                if (!isNaN(w)) totalWeight += w;
+                            }
+                        }
+                    });
+                    const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                    updateCapacityDisplay(slotDiv, totalWeight, cap);
+                });
+            });
+            // Unassigned
+            const assignedSet = new Set();
+            trucks.forEach(truck => {
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    (assignments[dateStr][slotKey] || []).forEach(id => assignedSet.add(id));
+                });
+            });
+            appsForDate.forEach(appt => {
+                if (!assignedSet.has(appt.id)) {
+                    const card = createApptCard(appt);
+                    card.dataset.id = appt.id;
+                    unassignedListEl.appendChild(card);
+                }
+            });
+            console.log("Unassigned populated.");
+        }
+
+        // Navigation
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                populateForDate(dates[currentIndex]);
+            }
+        });
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < dates.length - 1) {
+                currentIndex++;
+                populateForDate(dates[currentIndex]);
+            }
+        });
+
+        // Initial build & populate
+        buildTruckBlocks();
+        if (dates.length > 0) {
+            populateForDate(dates[currentIndex]);
+        } else {
+            currentDateEl.textContent = "No dates configured";
+        }
+
+        // Save button
+        saveBtn.addEventListener('click', () => {
+            console.log("Saving assignments:", assignments);
+            fetch("{{ url_for('save_schedule') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(assignments)
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error saving schedule: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error saving schedule.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success) {
+                            alert('Schedule saved.');
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Schedule saved.');
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            });
+        });
+
+        // Download button
+        downloadBtn.addEventListener('click', () => {
+            window.location.href = "{{ url_for('download_schedule') }}";
+        });
+
+        // Add Appointment modal logic with dynamic date-range extension
+        const addModal = document.getElementById('addModal');
+        const addForm = document.getElementById('addForm');
+        const addCancelBtn = document.getElementById('addCancelBtn');
+        const addSubmitBtn = document.getElementById('addSubmitBtn');
+        addBtn.addEventListener('click', () => {
+            addForm.reset();
+            addModal.style.display = 'flex';
+        });
+        addCancelBtn.addEventListener('click', () => {
+            addModal.style.display = 'none';
+        });
+        addSubmitBtn.addEventListener('click', () => {
+            // Collect values
+            const agency_number = document.getElementById('add-agency_number').value.trim();
+            const account_name = document.getElementById('add-account_name').value.trim();
+            const area = document.getElementById('add-area').value.trim();
+            const min_weight = Number(document.getElementById('add-min_weight').value);
+            const max_weight = Number(document.getElementById('add-max_weight').value);
+            const start_time_val = document.getElementById('add-start_time').value; // "YYYY-MM-DDTHH:MM"
+            const end_time_val   = document.getElementById('add-end_time').value;
+            if (!agency_number || !account_name || !area || isNaN(min_weight) || isNaN(max_weight)
+                || !start_time_val || !end_time_val) {
+                alert('Please fill all fields.');
+                return;
+            }
+            const payload = {
+                agency_number,
+                account_name,
+                area,
+                min_weight,
+                max_weight,
+                start_time: start_time_val,
+                end_time: end_time_val
+            };
+            fetch("{{ url_for('add_specific_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            }).then(resp => {
+                if (!resp.ok) {
+                    // e.g. 400 or redirect to login
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error adding appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success && data.new_appt) {
+                            const appt = data.new_appt;
+                            appointments.push(appt);
+                            apptMap[appt.id] = appt;
+                            // Extract date part
+                            const stDate = appt.start_time.split('T')[0];
+                            // If within existing date range, show immediately
+                            if (dates.includes(stDate)) {
+                                // Add to assignments structure if not present
+                                if (!assignments[stDate]) {
+                                    assignments[stDate] = {};
+                                    trucks.forEach(truck => {
+                                        slots.forEach(slotDef => {
+                                            const key = `${truck}_${slotDef.label}`;
+                                            assignments[stDate][key] = [];
+                                        });
+                                    });
+                                }
+                                if (dates[currentIndex] === stDate) {
+                                    // populate in unassigned
+                                    const card = createApptCard(appt);
+                                    card.dataset.id = appt.id;
+                                    unassignedListEl.appendChild(card);
+                                }
+                                alert('Appointment added.');
+                            } else {
+                                // Outside current range: ask user to extend range
+                                if (confirm(`New appointment date ${stDate} is outside current date range.\nDo you want to extend the date range to include it?`)) {
+                                    // Insert into dates array in sorted order
+                                    dates.push(stDate);
+                                    dates.sort(); // lex order works "YYYY-MM-DD"
+                                    // Rebuild assignments structure: ensure every date has keys
+                                    dates.forEach(d => {
+                                        if (!assignments[d]) {
+                                            assignments[d] = {};
+                                            trucks.forEach(truck => {
+                                                slots.forEach(slotDef => {
+                                                    const key = `${truck}_${slotDef.label}`;
+                                                    assignments[d][key] = [];
+                                                });
+                                            });
+                                        }
+                                    });
+                                    // Set currentIndex to the index of new date
+                                    currentIndex = dates.indexOf(stDate);
+                                    // Rebuild UI
+                                    buildTruckBlocks();
+                                    populateForDate(dates[currentIndex]);
+                                    alert('Date range extended. Appointment added and now visible.');
+                                } else {
+                                    alert('Appointment added but date not in current range. To view it later, choose a date range that includes ' + stDate + '.');
+                                }
+                            }
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Appointment added, but UI may need refresh.');
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            }).finally(() => {
+                addModal.style.display = 'none';
+            });
+        });
+
+        // Edit / Delete logic
+        const editModal = document.getElementById('editModal');
+        const editForm = document.getElementById('editForm');
+        const editCancelBtn = document.getElementById('editCancelBtn');
+        const editSaveBtn = document.getElementById('editSaveBtn');
+
+        function openEditModal(appt) {
+            document.getElementById('edit-id').value = appt.id;
+            document.getElementById('edit-agency_number').value = appt.agency_number;
+            document.getElementById('edit-account_name').value = appt.account_name;
+            document.getElementById('edit-area').value = appt.area;
+            document.getElementById('edit-min_weight').value = appt.min_weight;
+            document.getElementById('edit-max_weight').value = appt.max_weight;
+            // Convert ISO to datetime-local
+            function toLocal(dtStr) {
+                const dt = new Date(dtStr);
+                if (isNaN(dt)) return '';
+                const pad = n => String(n).padStart(2,'0');
+                return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+            }
+            document.getElementById('edit-start_time').value = toLocal(appt.start_time);
+            document.getElementById('edit-end_time').value   = toLocal(appt.end_time);
+            editModal.style.display = 'flex';
+        }
+        editCancelBtn.addEventListener('click', () => {
+            editModal.style.display = 'none';
+        });
+        editSaveBtn.addEventListener('click', () => {
+            const id = document.getElementById('edit-id').value;
+            const payload = {
+                id,
+                agency_number: document.getElementById('edit-agency_number').value.trim(),
+                account_name: document.getElementById('edit-account_name').value.trim(),
+                area: document.getElementById('edit-area').value.trim(),
+                min_weight: Number(document.getElementById('edit-min_weight').value),
+                max_weight: Number(document.getElementById('edit-max_weight').value),
+                start_time: document.getElementById('edit-start_time').value,
+                end_time: document.getElementById('edit-end_time').value
+            };
+            fetch("{{ url_for('edit_specific_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error editing appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success && data.updated_appt) {
+                            const updated = data.updated_appt;
+                            apptMap[id] = updated;
+                            for (let i=0; i<appointments.length; i++){
+                                if (appointments[i].id === id) {
+                                    appointments[i] = updated;
+                                    break;
+                                }
+                            }
+                            // Reload current date view
+                            populateForDate(dates[currentIndex]);
+                            alert('Appointment updated.');
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        populateForDate(dates[currentIndex]);
+                        alert('Appointment updated.');
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            }).finally(() => {
+                editModal.style.display = 'none';
+            });
+        });
+
+        function deleteAppointment(appt) {
+            if (!confirm('Are you sure you want to delete this appointment?')) return;
+            fetch("{{ url_for('delete_specific_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({id: appt.id})
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error deleting appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success) {
+                            delete apptMap[appt.id];
+                            const idx = appointments.findIndex(a=>a.id===appt.id);
+                            if (idx!==-1) appointments.splice(idx,1);
+                            populateForDate(dates[currentIndex]);
+                            alert('Appointment deleted.');
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        delete apptMap[appt.id];
+                        const idx = appointments.findIndex(a=>a.id===appt.id);
+                        if (idx!==-1) appointments.splice(idx,1);
+                        populateForDate(dates[currentIndex]);
+                        alert('Appointment deleted.');
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            });
+        }
+    });
+    </script>
+</body>
+</html>

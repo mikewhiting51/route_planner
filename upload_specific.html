@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Upload Specific-Date Appointments</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        form { margin-bottom: 20px; }
+        input[type="file"] { display: block; margin-bottom: 10px; }
+        button { padding: 8px 12px; font-size: 1em; cursor: pointer; }
+        .back-link { display: inline-block; margin-top: 15px; text-decoration: none; color: #007BFF; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div style="margin-bottom: 10px;">
+      {% if current_user.is_authenticated %}
+        Logged in as {{ current_user.username }} |
+        <a href="{{ url_for('logout') }}">Logout</a> |
+        <a href="{{ url_for('index') }}">Home</a>
+      {% endif %}
+    </div>
+    <h1>Upload Specific-Date Appointments</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul style="color: red;">
+          {% for category, msg in messages %}
+            <li>{{ msg }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if existing_defs %}
+      <p>You have previously uploaded a specific-date appointments file. You can:</p>
+      <form method="post" action="{{ url_for('upload_specific') }}">
+        <p>
+          <button name="use_existing" value="1" formaction="{{ url_for('use_existing_specific') }}">Use existing upload</button>
+          <button formaction="{{ url_for('upload_specific') }}">Upload new file</button>
+        </p>
+        <input type="file" id="file" name="file" accept=".csv">
+        <!-- If uploading new file, file input is required client-side; but if using existing, we ignore file. -->
+      </form>
+      <p><small>If you choose "Use existing upload", your previous definitions will be used. If you choose "Upload new file", select a CSV to overwrite.</small></p>
+    {% else %}
+      <form method="post" enctype="multipart/form-data">
+          <label for="file">Select CSV file:</label>
+          <input type="file" id="file" name="file" accept=".csv" required>
+          <button type="submit">Upload and Continue</button>
+      </form>
+    {% endif %}
+    <a class="back-link" href="{{ url_for('index') }}">&larr; Back to Home</a>
+</body>
+</html>
+

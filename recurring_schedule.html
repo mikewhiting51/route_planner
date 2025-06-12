@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Recurring Schedule</title>
+    <style>
+        /* Global box-sizing */
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        /* Simple nav links at top */
+        .top-nav {
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        .top-nav a {
+            margin-right: 10px;
+        }
+        header {
+            padding: 10px;
+            background-color: #e0e0e0;
+            display: flex;
+            align-items: center;
+        }
+        header button {
+            margin-right: 10px;
+            padding: 5px 10px;
+        }
+        header #current-pattern {
+            font-weight: bold;
+            margin-right: 20px;
+        }
+        #main-container {
+            display: flex;
+            height: calc(100vh - 90px); /* account for nav + header */
+        }
+        #left-pane {
+            width: 250px;
+            border-right: 1px solid #ccc;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        #left-pane h3 {
+            margin-top: 0;
+        }
+        /* Appointment card */
+        .appointment {
+            position: relative;
+            border: 1px solid #666;
+            background-color: #f9f9f9;
+            margin: 4px 0;
+            padding: 4px;
+            cursor: move;
+            font-size: 0.85em;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+        .appointment .icon-container {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            display: none;
+        }
+        .appointment:hover .icon-container {
+            display: block;
+        }
+        .icon {
+            margin-left: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        #right-pane {
+            flex-grow: 1;
+            overflow-x: auto;
+            padding: 10px;
+            white-space: nowrap;
+        }
+        .truck-block {
+            display: inline-block;
+            vertical-align: top;
+            border: 1px solid #999;
+            margin: 5px;
+            width: 220px;
+        }
+        .truck-block h4 {
+            text-align: center;
+            margin: 5px 0;
+            white-space: pre-line;
+            background-color: #e0e0e0;
+            padding: 4px;
+            font-size: 0.9em;
+        }
+        .slot-container {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 8px;
+        }
+        .capacity-info {
+            flex: 0 0 auto;
+            background-color: #e0e0e0;
+            padding: 4px;
+            font-size: 0.8em;
+            border-bottom: 1px solid #ccc;
+        }
+        .slot-list {
+            flex: 1 1 auto;
+            min-height: 60px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 5px;
+            border-left: 2px dashed #ddd;
+        }
+        .slot-list .appointment {
+            margin: 2px 0;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+        #save-btn, #download-btn, #add-btn {
+            margin-left: auto;
+            padding: 6px 12px;
+        }
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: #fff;
+            padding: 20px;
+            border-radius: 4px;
+            max-width: 90%;
+            width: 380px;
+        }
+        .modal label {
+            display: block;
+            margin: 8px 0 4px;
+            font-size: 0.9em;
+        }
+        .modal input, .modal select {
+            width: 100%;
+            padding: 4px;
+            margin-bottom: 8px;
+        }
+        .modal h3 {
+            margin-top: 0;
+        }
+        .modal-buttons {
+            text-align: right;
+        }
+        .modal-buttons button {
+            margin-left: 8px;
+            padding: 6px 10px;
+        }
+    </style>
+    <!-- SortableJS -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.14.0/Sortable.min.js"></script>
+</head>
+<body>
+    <div class="top-nav">
+      {% if current_user.is_authenticated %}
+        Logged in as {{ current_user.username }} |
+        <a href="{{ url_for('logout') }}">Logout</a> |
+        <a href="{{ url_for('index') }}">Home</a> |
+        <a href="{{ url_for('upload_specific') }}">Specific Upload</a> |
+        <a href="{{ url_for('recurring_upload') }}">Recurring Upload</a>
+      {% else %}
+        <a href="{{ url_for('login') }}">Login</a> |
+        <a href="{{ url_for('register') }}">Register</a>
+      {% endif %}
+    </div>
+    <header>
+        <button id="prev-pattern">&larr; Prev</button>
+        <button id="next-pattern">Next &rarr;</button>
+        <span id="current-pattern"></span>
+        <button id="add-btn">Add Appointment</button>
+        <button id="save-btn">Save Recurring Schedule</button>
+        <button id="download-btn">Download Recurring CSV</button>
+    </header>
+    <div id="main-container">
+        <div id="left-pane">
+            <h3>Unassigned</h3>
+            <div id="unassigned-list"></div>
+        </div>
+        <div id="right-pane">
+            <!-- Truck blocks inserted by JS -->
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Edit Recurring Appointment</h3>
+        <form id="editForm" onsubmit="return false;">
+          <input type="hidden" id="edit-id">
+          <label>Agency Number:
+            <input type="text" id="edit-agency_number" required>
+          </label>
+          <label>Account Name:
+            <input type="text" id="edit-account_name" required>
+          </label>
+          <label>Area:
+            <input type="text" id="edit-area" required>
+          </label>
+          <label>Minimum Weight:
+            <input type="number" id="edit-min_weight" required>
+          </label>
+          <label>Maximum Weight:
+            <input type="number" id="edit-max_weight" required>
+          </label>
+          <label>Day:
+            <select id="edit-day" required>
+              <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+              <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+            </select>
+          </label>
+          <label>Frequency:
+            <select id="edit-frequency" required>
+              <option>First</option><option>Second</option><option>Third</option>
+              <option>Fourth</option><option>Fifth</option>
+            </select>
+          </label>
+          <label>Start Time (HH:MM):
+            <input type="time" id="edit-start_time_str" required>
+          </label>
+          <label>End Time (HH:MM):
+            <input type="time" id="edit-end_time_str" required>
+          </label>
+          <div class="modal-buttons">
+            <button type="button" id="editCancelBtn">Cancel</button>
+            <button type="button" id="editSaveBtn">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div id="addModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Add New Recurring Appointment</h3>
+        <form id="addForm" onsubmit="return false;">
+          <label>Agency Number:
+            <input type="text" id="add-agency_number" required>
+          </label>
+          <label>Account Name:
+            <input type="text" id="add-account_name" required>
+          </label>
+          <label>Area:
+            <input type="text" id="add-area" required>
+          </label>
+          <label>Minimum Weight:
+            <input type="number" id="add-min_weight" required>
+          </label>
+          <label>Maximum Weight:
+            <input type="number" id="add-max_weight" required>
+          </label>
+          <label>Day:
+            <select id="add-day" required>
+              <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+              <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+            </select>
+          </label>
+          <label>Frequency:
+            <select id="add-frequency" required>
+              <option>First</option><option>Second</option><option>Third</option>
+              <option>Fourth</option><option>Fifth</option>
+            </select>
+          </label>
+          <label>Start Time (HH:MM):
+            <input type="time" id="add-start_time_str" required>
+          </label>
+          <label>End Time (HH:MM):
+            <input type="time" id="add-end_time_str" required>
+          </label>
+          <div class="modal-buttons">
+            <button type="button" id="addCancelBtn">Cancel</button>
+            <button type="button" id="addSubmitBtn">Add</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+    // @ts-nocheck
+    document.addEventListener('DOMContentLoaded', () => {
+        let appointments, patterns, trucks, slots, savedAssignments;
+        try {
+            appointments = {{ appointments | tojson | safe }};
+            patterns = {{ patterns | tojson | safe }};
+            trucks = {{ trucks | tojson | safe }};
+            slots = {{ slots | tojson | safe }};
+            savedAssignments = {{ saved_assignments | tojson | safe }};
+        } catch (e) {
+            console.error("Failed to parse embedded data:", e);
+            alert("Error reading recurring schedule data.");
+            return;
+        }
+        // Validate arrays
+        if (!Array.isArray(appointments) || !Array.isArray(patterns)
+            || !Array.isArray(trucks) || !Array.isArray(slots)) {
+            console.error("One of expected arrays is invalid.");
+            alert("Recurring schedule data malformed.");
+            return;
+        }
+
+        // Map id -> appointment
+        const apptMap = {};
+        appointments.forEach(a => { apptMap[a.id] = a; });
+
+        // Prepare assignments: patternLabel -> { "TruckName_SlotLabel": [] }
+        const assignments = {};
+        patterns.forEach(pat => {
+            const label = pat.label;
+            assignments[label] = {};
+            trucks.forEach(truck => {
+                slots.forEach(slotDef => {
+                    const key = `${truck}_${slotDef.label}`;
+                    if (savedAssignments && savedAssignments[label] && Array.isArray(savedAssignments[label][key])) {
+                        assignments[label][key] = [...savedAssignments[label][key]];
+                    } else {
+                        assignments[label][key] = [];
+                    }
+                });
+            });
+        });
+        console.log("Initialized recurring assignments:", assignments);
+
+        let currentIndex = 0;
+
+        // DOM references
+        const currentPatternEl = document.getElementById('current-pattern');
+        const unassignedListEl = document.getElementById('unassigned-list');
+        const rightPaneEl = document.getElementById('right-pane');
+        const prevBtn = document.getElementById('prev-pattern');
+        const nextBtn = document.getElementById('next-pattern');
+        const addBtn = document.getElementById('add-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const downloadBtn = document.getElementById('download-btn');
+
+        if (!currentPatternEl || !unassignedListEl || !rightPaneEl
+            || !prevBtn || !nextBtn || !addBtn || !saveBtn || !downloadBtn) {
+            console.error("Missing DOM elements.");
+            alert("Recurring schedule page did not load correctly.");
+            return;
+        }
+
+        function formatPatternDisplay(patLabel) {
+            return patLabel;
+        }
+        function formatHourDecimal(dec) {
+            const h = Math.floor(dec);
+            const m = Math.round((dec - h)*60);
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+        }
+
+        // Create appointment card including icons
+        function createApptCard(appt) {
+            const div = document.createElement('div');
+            div.className = 'appointment';
+            div.dataset.id = appt.id;
+            const stStr = appt.start_time_str || '';
+            const etStr = appt.end_time_str || '';
+            div.innerHTML = `
+                <strong>${appt.agency_number}</strong> ${appt.account_name}<br>
+                <em>${appt.area}</em><br>
+                ${stStr} - ${etStr}<br>
+                Max: ${appt.max_weight}
+                <div class="icon-container">
+                    <span class="icon edit-icon" title="Edit">&#9998;</span>
+                    <span class="icon delete-icon" title="Delete">&#10060;</span>
+                </div>
+            `;
+            // Edit listener
+            div.querySelector('.edit-icon').addEventListener('click', e => {
+                e.stopPropagation();
+                openEditModal(appt);
+            });
+            // Delete listener
+            div.querySelector('.delete-icon').addEventListener('click', e => {
+                e.stopPropagation();
+                deleteAppointment(appt);
+            });
+            return div;
+        }
+
+        const sortableInstances = {};
+
+        function buildTruckBlocks() {
+            rightPaneEl.innerHTML = '';
+            trucks.forEach(truck => {
+                const block = document.createElement('div');
+                block.className = 'truck-block';
+                // Header
+                const header = document.createElement('h4');
+                const slotTexts = slots.map(s => `${s.label}: ${formatHourDecimal(s.start_hour)}-${formatHourDecimal(s.end_hour)}`);
+                header.textContent = `${truck}\n${slotTexts.join('\n')}`;
+                block.appendChild(header);
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const container = document.createElement('div');
+                    container.className = 'slot-container';
+                    // capacity header
+                    const capInfo = document.createElement('div');
+                    capInfo.className = 'capacity-info';
+                    const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                    capInfo.textContent = `Load: 0 / ${cap === Infinity ? '∞' : cap}`;
+                    container.appendChild(capInfo);
+                    // drop area
+                    const slotDiv = document.createElement('div');
+                    slotDiv.className = 'slot-list';
+                    slotDiv.id = `slot_${safeTruck}_${slotDef.label}`;
+                    slotDiv.dataset.truck = truck;
+                    slotDiv.dataset.slot = slotDef.label;
+                    container.appendChild(slotDiv);
+                    block.appendChild(container);
+                });
+                rightPaneEl.appendChild(block);
+            });
+            console.log("Built truck blocks for recurring.");
+
+            // Initialize Sortable on each slot-list
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    const el = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (!el) {
+                        console.error("Slot element not found:", slotKey);
+                        return;
+                    }
+                    sortableInstances[slotKey] = new Sortable(el, {
+                        group: 'shared',
+                        animation: 150,
+                        onAdd(evt) {
+                            const apptId = evt.item.dataset.id;
+                            const appt = apptMap[apptId];
+                            if (!appt) {
+                                alert('Unknown appointment');
+                                evt.from.appendChild(evt.item);
+                                return;
+                            }
+                            // Time-fit check
+                            const sh = appt.start_hour;
+                            const tstart = slotDef.start_hour, tend = slotDef.end_hour;
+                            if (!(sh >= tstart && sh < tend)) {
+                                if (!confirm(`This appointment does not fit time slot ${slotDef.label} (${formatHourDecimal(tstart)}-${formatHourDecimal(tend)}). Place anyway?`)) {
+                                    evt.from.appendChild(evt.item);
+                                    return;
+                                }
+                            }
+                            // Capacity check
+                            let capacity = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                            let totalWeight = 0;
+                            Array.from(el.children).forEach(child => {
+                                if (child.classList.contains('capacity-info')) return;
+                                const id = child.dataset.id;
+                                const a = apptMap[id];
+                                if (a && a.max_weight != null) {
+                                    const w = Number(a.max_weight);
+                                    if (!isNaN(w)) totalWeight += w;
+                                }
+                            });
+                            if (totalWeight > capacity) {
+                                if (!confirm(`Total load ${totalWeight} exceeds capacity ${capacity}. Place anyway?`)) {
+                                    evt.from.appendChild(evt.item);
+                                    updateCapacityDisplay(el, totalWeight - Number(appt.max_weight||0), capacity);
+                                    return;
+                                }
+                            }
+                            // Passed/overridden: update assignments
+                            const patternLabel = patterns[currentIndex].label;
+                            const ids = Array.from(el.children).map(ch => ch.dataset.id);
+                            assignments[patternLabel][slotKey] = ids;
+                            updateCapacityDisplay(el, totalWeight, capacity);
+                        }
+                    });
+                });
+            });
+            // Unassigned Sortable
+            new Sortable(unassignedListEl, {
+                group: 'shared',
+                animation: 150,
+                onAdd(evt) {
+                    const apptId = evt.item.dataset.id;
+                    const patternLabel = patterns[currentIndex].label;
+                    // Remove from any slot arrays
+                    trucks.forEach(truck => {
+                        slots.forEach(slotDef => {
+                            const slotKey = `${truck}_${slotDef.label}`;
+                            const arr = assignments[patternLabel][slotKey];
+                            const idx = arr.indexOf(apptId);
+                            if (idx !== -1) {
+                                arr.splice(idx, 1);
+                                const safeTruck = truck.replace(/\s+/g, '_');
+                                const el = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                                if (el) {
+                                    let totalWeight = 0;
+                                    Array.from(el.children).forEach(child => {
+                                        if (child.classList.contains('capacity-info')) return;
+                                        const id = child.dataset.id;
+                                        const a = apptMap[id];
+                                        if (a && a.max_weight != null) {
+                                            const w = Number(a.max_weight);
+                                            if (!isNaN(w)) totalWeight += w;
+                                        }
+                                    });
+                                    let capacity = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                                    updateCapacityDisplay(el, totalWeight, capacity);
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+            console.log("Initialized Sortable on recurring unassigned.");
+        }
+
+        function updateCapacityDisplay(slotEl, totalWeight, capacity) {
+            // slotEl is the .slot-list element; capacity-info is previous sibling
+            const capInfo = slotEl.previousElementSibling;
+            if (capInfo && capInfo.classList.contains('capacity-info')) {
+                capInfo.textContent = `Load: ${totalWeight} / ${capacity === Infinity ? '∞' : capacity}`;
+                if (capacity !== Infinity && totalWeight > capacity) {
+                    capInfo.style.color = 'red';
+                } else {
+                    capInfo.style.color = '';
+                }
+            }
+        }
+
+        function populateForPattern(patternObj) {
+            const patternLabel = patternObj.label;
+            console.log("Populating for pattern:", patternLabel);
+            currentPatternEl.textContent = formatPatternDisplay(patternLabel);
+            unassignedListEl.innerHTML = '';
+            // Clear slots
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotDiv = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (slotDiv) {
+                        slotDiv.innerHTML = '';
+                        const capInfo = slotDiv.previousElementSibling;
+                        if (capInfo && capInfo.classList.contains('capacity-info')) {
+                            const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                            capInfo.textContent = `Load: 0 / ${cap === Infinity ? '∞' : cap}`;
+                            capInfo.style.color = '';
+                        }
+                    }
+                });
+            });
+            // Filter appointments by this pattern
+            const appsForPattern = appointments.filter(appt => {
+                return appt.day === patternObj.day && appt.frequency === patternObj.frequency;
+            });
+            console.log("Appointments for pattern:", appsForPattern);
+            // Place assigned
+            trucks.forEach(truck => {
+                const safeTruck = truck.replace(/\s+/g, '_');
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    const slotDiv = document.getElementById(`slot_${safeTruck}_${slotDef.label}`);
+                    if (!slotDiv) return;
+                    const arr = assignments[patternLabel][slotKey] || [];
+                    let totalWeight = 0;
+                    arr.forEach(apptId => {
+                        const appt = apptMap[apptId];
+                        if (appt) {
+                            const card = createApptCard(appt);
+                            card.dataset.id = apptId;
+                            slotDiv.appendChild(card);
+                            if (appt.max_weight != null) {
+                                const w = Number(appt.max_weight);
+                                if (!isNaN(w)) totalWeight += w;
+                            }
+                        }
+                    });
+                    const cap = truck.startsWith("Trailer") ? 25000 : (truck.startsWith("Straight") ? 15000 : Infinity);
+                    updateCapacityDisplay(slotDiv, totalWeight, cap);
+                });
+            });
+            // Unassigned
+            const assignedSet = new Set();
+            trucks.forEach(truck => {
+                slots.forEach(slotDef => {
+                    const slotKey = `${truck}_${slotDef.label}`;
+                    (assignments[patternLabel][slotKey] || []).forEach(id => assignedSet.add(id));
+                });
+            });
+            appsForPattern.forEach(appt => {
+                if (!assignedSet.has(appt.id)) {
+                    const card = createApptCard(appt);
+                    card.dataset.id = appt.id;
+                    unassignedListEl.appendChild(card);
+                }
+            });
+            console.log("Unassigned for pattern populated.");
+        }
+
+        // Navigation
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                populateForPattern(patterns[currentIndex]);
+            }
+        });
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < patterns.length - 1) {
+                currentIndex++;
+                populateForPattern(patterns[currentIndex]);
+            }
+        });
+
+        // Initial build/populate
+        buildTruckBlocks();
+        if (patterns.length > 0) {
+            populateForPattern(patterns[currentIndex]);
+        } else {
+            console.warn("No patterns available.");
+            currentPatternEl.textContent = "No patterns configured";
+        }
+
+        // Save recurring assignments
+        saveBtn.addEventListener('click', () => {
+            console.log("Saving recurring assignments:", assignments);
+            fetch("{{ url_for('save_recurring_schedule') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(assignments)
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error saving recurring schedule.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success) {
+                            alert('Recurring schedule saved.');
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Recurring schedule saved.');
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            });
+        });
+
+        // Download button
+        downloadBtn.addEventListener('click', () => {
+            window.location.href = "{{ url_for('download_recurring_schedule') }}";
+        });
+
+        // Add Appointment modal logic with dynamic pattern insertion
+        const addModal = document.getElementById('addModal');
+        const addForm = document.getElementById('addForm');
+        const addCancelBtn = document.getElementById('addCancelBtn');
+        const addSubmitBtn = document.getElementById('addSubmitBtn');
+        addBtn.addEventListener('click', () => {
+            console.log('Add button clicked');  // debug
+            addForm.reset();
+            addModal.style.display = 'flex';
+        });
+        addCancelBtn.addEventListener('click', () => {
+            addModal.style.display = 'none';
+        });
+        addSubmitBtn.addEventListener('click', () => {
+            // Collect values
+            const agency_number = document.getElementById('add-agency_number').value.trim();
+            const account_name = document.getElementById('add-account_name').value.trim();
+            const area = document.getElementById('add-area').value.trim();
+            const min_weight = Number(document.getElementById('add-min_weight').value);
+            const max_weight = Number(document.getElementById('add-max_weight').value);
+            const day = document.getElementById('add-day').value;
+            const frequency = document.getElementById('add-frequency').value;
+            const start_time_str = document.getElementById('add-start_time_str').value; // "HH:MM"
+            const end_time_str   = document.getElementById('add-end_time_str').value;
+            if (!agency_number || !account_name || !area || isNaN(min_weight) || isNaN(max_weight)
+                || !day || !frequency || !start_time_str || !end_time_str) {
+                alert('Please fill all fields.');
+                return;
+            }
+            const payload = {
+                agency_number,
+                account_name,
+                area,
+                min_weight,
+                max_weight,
+                day,
+                frequency,
+                start_time_str,
+                end_time_str
+            };
+            fetch("{{ url_for('add_recurring_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error adding appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success && data.new_appt) {
+                            const appt = data.new_appt;
+                            appointments.push(appt);
+                            apptMap[appt.id] = appt;
+                            // Recompute patterns array
+                            const weekdays_order = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+                            const ordinals_order = ['First','Second','Third','Fourth','Fifth'];
+                            // Build new patterns list
+                            const newPatterns = [];
+                            const seen = new Set();
+                            appointments.forEach(a => {
+                                const label = `${a.frequency} ${a.day}`;
+                                if (!seen.has(label)) {
+                                    seen.add(label);
+                                    newPatterns.push({ label, frequency: a.frequency, day: a.day });
+                                }
+                            });
+                            // Sort
+                            newPatterns.sort((p1,p2) => {
+                                const i1 = ordinals_order.indexOf(p1.frequency), j1 = weekdays_order.indexOf(p1.day);
+                                const i2 = ordinals_order.indexOf(p2.frequency), j2 = weekdays_order.indexOf(p2.day);
+                                if (i1 !== i2) return i1 - i2;
+                                return j1 - j2;
+                            });
+                            patterns = newPatterns;
+                            // Rebuild assignments structure: preserve existing assignments where possible
+                            const newAssignments = {};
+                            patterns.forEach(pat => {
+                                const label = pat.label;
+                                if (assignments[label]) {
+                                    newAssignments[label] = assignments[label];
+                                } else {
+                                    // initialize empty
+                                    newAssignments[label] = {};
+                                    trucks.forEach(truck => {
+                                        slots.forEach(slotDef => {
+                                            const key = `${truck}_${slotDef.label}`;
+                                            newAssignments[label][key] = [];
+                                        });
+                                    });
+                                }
+                            });
+                            // Replace assignments
+                            Object.keys(assignments).forEach(oldLabel => {
+                                if (!newAssignments[oldLabel]) {
+                                    // dropped pattern, ignore
+                                }
+                            });
+                            // Now assignments points to newAssignments
+                            for (let k in newAssignments) assignments[k] = newAssignments[k];
+                            // Update currentIndex to the new appointment's pattern
+                            const newLabel = `${appt.frequency} ${appt.day}`;
+                            const idx = patterns.findIndex(p => p.label === newLabel);
+                            if (idx >= 0) {
+                                currentIndex = idx;
+                            } else {
+                                currentIndex = 0;
+                            }
+                            // Rebuild UI
+                            buildTruckBlocks();
+                            populateForPattern(patterns[currentIndex]);
+                            alert('Appointment added and pattern list updated.');
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Appointment added; reloading.');
+                        window.location.reload();
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            }).finally(() => {
+                addModal.style.display = 'none';
+            });
+        });
+
+        // Edit / Delete logic
+        const editModal = document.getElementById('editModal');
+        const editForm = document.getElementById('editForm');
+        const editCancelBtn = document.getElementById('editCancelBtn');
+        const editSaveBtn = document.getElementById('editSaveBtn');
+
+        function openEditModal(appt) {
+            document.getElementById('edit-id').value = appt.id;
+            document.getElementById('edit-agency_number').value = appt.agency_number;
+            document.getElementById('edit-account_name').value = appt.account_name;
+            document.getElementById('edit-area').value = appt.area;
+            document.getElementById('edit-min_weight').value = appt.min_weight;
+            document.getElementById('edit-max_weight').value = appt.max_weight;
+            document.getElementById('edit-day').value = appt.day;
+            document.getElementById('edit-frequency').value = appt.frequency;
+            document.getElementById('edit-start_time_str').value = appt.start_time_str;
+            document.getElementById('edit-end_time_str').value = appt.end_time_str;
+            editModal.style.display = 'flex';
+        }
+        editCancelBtn.addEventListener('click', () => {
+            editModal.style.display = 'none';
+        });
+        editSaveBtn.addEventListener('click', () => {
+            const id = document.getElementById('edit-id').value;
+            const payload = {
+                id,
+                agency_number: document.getElementById('edit-agency_number').value.trim(),
+                account_name: document.getElementById('edit-account_name').value.trim(),
+                area: document.getElementById('edit-area').value.trim(),
+                min_weight: Number(document.getElementById('edit-min_weight').value),
+                max_weight: Number(document.getElementById('edit-max_weight').value),
+                day: document.getElementById('edit-day').value,
+                frequency: document.getElementById('edit-frequency').value,
+                start_time_str: document.getElementById('edit-start_time_str').value,
+                end_time_str: document.getElementById('edit-end_time_str').value
+            };
+            fetch("{{ url_for('edit_recurring_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload)
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error editing appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success) {
+                            // Simplest: reload to refresh patterns from backend
+                            alert('Appointment updated. Reloading...');
+                            window.location.reload();
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Appointment updated. Reloading...');
+                        window.location.reload();
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            }).finally(() => {
+                editModal.style.display = 'none';
+            });
+        });
+
+        function deleteAppointment(appt) {
+            if (!confirm('Are you sure you want to delete this appointment?')) return;
+            fetch("{{ url_for('delete_recurring_appointment') }}", {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({id: appt.id})
+            }).then(resp => {
+                if (!resp.ok) {
+                    resp.json().then(data => {
+                        alert('Error: ' + (data.error || resp.statusText));
+                    }).catch(() => {
+                        alert('Error deleting appointment.');
+                    });
+                } else {
+                    resp.json().then(data => {
+                        if (data.success) {
+                            alert('Appointment deleted. Reloading...');
+                            window.location.reload();
+                        } else {
+                            alert('Error: ' + (data.error || 'Unknown'));
+                        }
+                    }).catch(() => {
+                        alert('Appointment deleted. Reloading...');
+                        window.location.reload();
+                    });
+                }
+            }).catch(err => {
+                alert('Request failed: ' + err);
+            });
+        }
+    });
+    </script>
+</body>
+</html>
+

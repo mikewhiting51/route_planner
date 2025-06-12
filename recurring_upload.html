@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <a href="{{ url_for('index') }}">Home</a> |
+<a href="{{ url_for('upload_specific') }}">Specific Upload</a> |
+<a href="{{ url_for('recurring_upload') }}">Recurring Upload</a>
+
+    <!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Upload Recurring Appointments</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        form { margin-bottom: 20px; }
+        input[type="file"] { display: block; margin-bottom: 10px; }
+        button { padding: 8px 12px; font-size: 1em; cursor: pointer; }
+        .back-link { display: inline-block; margin-top: 15px; text-decoration: none; color: #007BFF; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div style="margin-bottom: 10px;">
+      {% if current_user.is_authenticated %}
+        Logged in as {{ current_user.username }} |
+        <a href="{{ url_for('logout') }}">Logout</a> |
+        <a href="{{ url_for('index') }}">Home</a>
+      {% endif %}
+    </div>
+    <h1>Upload Recurring Appointments</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul style="color: red;">
+          {% for category, msg in messages %}
+            <li>{{ msg }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if existing_defs %}
+      <p>You have previously uploaded a recurring appointments file. You can:</p>
+      <form method="post" action="{{ url_for('recurring_upload') }}" enctype="multipart/form-data">
+        <button formaction="{{ url_for('use_existing_recurring') }}" name="use_existing" value="1">Use existing upload</button>
+        <button formaction="{{ url_for('recurring_upload') }}">Upload new file</button>
+        <input type="file" id="file" name="file" accept=".csv">
+      </form>
+      <p><small>If you choose "Use existing upload", your previous definitions will be used. If "Upload new file", select a CSV to overwrite.</small></p>
+    {% else %}
+      <form method="post" enctype="multipart/form-data">
+          <label for="file">Select CSV file:</label>
+          <input type="file" id="file" name="file" accept=".csv" required>
+          <button type="submit">Upload and Continue</button>
+      </form>
+    {% endif %}
+    <a class="back-link" href="{{ url_for('index') }}">&larr; Back to Home</a>
+</body>
+</html>
